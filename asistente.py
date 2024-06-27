@@ -1,3 +1,5 @@
+#actualizacion con analisis de inventario funcionando
+
 import AVMSpeechMath as sm
 import AVMYT as yt
 import speech_recognition as sr
@@ -68,7 +70,7 @@ db = mysql.connector.connect(
     host="localhost",
     user="root",
     password="",
-    database="asistente_virtual"
+    database="ale_asistente"
 )
 cursor = db.cursor()
 # FIN Conexión a la base de datos
@@ -99,7 +101,7 @@ def consultar_venta_cliente(cliente_venta):
 
 # INI RF017 Metodo para obtener rentabilidad
 def consultar_rentabilidad_producto(nombre_producto):
-    consulta = "SELECT nombre as nombre, SUM(precio_compra * stock) AS costo_total, SUM(precio_venta * stock) AS ingreso_total, (SUM(precio_venta * stock) - SUM(precio_compra * stock)) AS rentabilidad FROM producto WHERE nombre = %s GROUP BY id, nombre"
+    consulta = "SELECT nombre as nombre, SUM(precio_adquirido * stock) AS costo_total, SUM(precio * stock) AS ingreso_total, (SUM(precio * stock) - SUM(precio_adquirido * stock)) AS rentabilidad FROM producto WHERE nombre = %s GROUP BY id, nombre"
     cursor.execute(consulta, (nombre_producto,))
     resultado = cursor.fetchone()
     return resultado
@@ -109,7 +111,7 @@ def consultar_rentabilidad_producto(nombre_producto):
 def generar_excel(data):
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["Nombre", "Stock"])  # Aqui creo los encabezados del Excel
+    sheet.append(["Producto", "Stock"])  # Aqui creo los encabezados del Excel
 
     for row in data:
         sheet.append(row)
@@ -220,6 +222,122 @@ def generar_pdf(datos, mapa_path):
     print("PDF generado exitosamente.")
     return pdf_path
 
+#INI RF06 Generar informe de Analisis de inventario y pedidos
+
+def consultar_inventario():
+    cursor.execute("SELECT nombre, stock, precio FROM producto")
+    return cursor.fetchall()
+
+def consultar_pedidos():
+    cursor.execute("SELECT p.id, c.nombre, p.total FROM pedido p JOIN cliente c ON p.cliente_id = c.id")
+    return cursor.fetchall()
+
+def generar_pdf_analisis(datos_inventario, datos_pedidos):
+    pdf_path = "analisis_inventario_pedidos.pdf"
+    c = canvas.Canvas(pdf_path, pagesize=letter)
+    width, height = letter
+
+    c.drawString(200, 750, "Análisis de Inventario y Pedidos")
+    c.drawString(100, 730, "Inventario Actual")
+
+    y = 700
+    for nombre, stock, precio in datos_inventario:
+        c.drawString(100, y, f"Producto: {nombre}, Stock: {stock}, Precio de Venta: {precio}")
+        y -= 20
+
+    y -= 20
+    c.drawString(100, y, "Pedidos Realizados")
+
+    y -= 20
+    for pedido_id, cliente, total in datos_pedidos:
+        c.drawString(100, y, f"Pedido ID: {pedido_id},  Cliente: {cliente}, Total: {total}")
+        y -= 20
+
+    c.showPage()
+    c.save()
+
+    print("PDF de análisis de inventario y pedidos generado exitosamente.")
+    return pdf_path
+
+#FIN RF06 Generar informe de Analisis de inventario y pedidos
+
+
+#RF024
+def generar_reporte_clientes_ciudad():
+    consulta = "SELECT ciudad, COUNT(*) FROM cliente GROUP BY ciudad"
+    cursor.execute(consulta)
+    resultados = cursor.fetchall()
+
+    pdf_path = "reporte_clientes_por_ciudad.pdf"
+    c = canvas.Canvas(pdf_path, pagesize=letter)
+    width, height = letter
+
+    c.drawString(100, 750, "Reporte de Clientes por Ciudad")
+    y = 730
+    for ciudad, total_clientes in resultados:
+        c.drawString(100, y, f"{ciudad}: {total_clientes}")
+        y -= 20
+
+    c.showPage()
+    c.save()
+
+    print("PDF generado exitosamente.")
+    return pdf_path
+#FIN RF024
+
+# INI RF023 Segmentar a los clientes segun su comportamiento de compra
+def obtener_clientes_por_categoria():
+    consulta = """
+SELECT 
+    cat.nombre AS Categoria, 
+    COUNT(DISTINCT p.cliente_id) AS Clientes
+FROM 
+    categoria cat
+LEFT JOIN 
+    producto prod ON cat.id = prod.categoria_id
+LEFT JOIN 
+    detallepedido dp ON prod.id = dp.producto_id
+LEFT JOIN 
+    pedido p ON dp.pedido_id = p.id
+GROUP BY 
+    cat.nombre;
+    """
+    cursor.execute(consulta)
+    return cursor.fetchall()
+
+# Función para generar el archivo Excel
+def generar_excel_clientes_categoria(datos):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Clientes por Categoría"
+    sheet.append(["Categoría", "Cliente"])  # Encabezados del Excel
+
+    for row in datos:
+        sheet.append(row)
+
+    excel_file = "clientes_por_categoria.xlsx"
+    workbook.save(excel_file)
+    print("Excel generado exitosamente.")
+    return excel_file
+# FIN RF023 Segmentar a los clientes segun su comportamiento de compra
+
+#INI Cantidad de productos comprados por cliente
+def consultar_prueba(cliente):
+    consulta = "SELECT c.nombre, SUM(dp.cantidad) AS total_productos_vendidos FROM cliente c INNER JOIN pedido p ON c.id = p.cliente_id INNER JOIN detallepedido dp ON p.id = dp.pedido_id WHERE c.nombre = %s GROUP BY c.nombre "
+    cursor.execute(consulta, (cliente,))
+    resultado = cursor.fetchone()
+    return resultado
+
+#FIN Cantidad de productos comprados por cliente
+
+# INI RF04 Recomendar producto a cliente
+def consultar_recomendaciones(cliente_id):
+    consulta_producto_mas_vendido = """SELECT DISTINCT p2.nombre FROM detallepedido dp JOIN producto p1 ON dp.producto_id = p1.id JOIN producto p2 ON p1.categoria_id = p2.categoria_id JOIN pedido pe ON dp.pedido_id = pe.id JOIN cliente c ON pe.cliente_id = c.id WHERE c.nombre = %s AND p1.id != p2.id; """
+    cursor.execute(consulta_producto_mas_vendido, (cliente_id,))
+    resultado = cursor.fetchall()
+    return resultado
+# FIN RF04 Recomendar producto a cliente
+
 while True:
     rec_json = get_audio()
 
@@ -277,7 +395,7 @@ while True:
                 speak(f"El cliente {nombre} ha realizado {total_compras} compras y ha gastado un total de {total_gastado} soles.")
             else:
                 speak(f"No se encontraron datos para el cliente {cliente}.")
-#RF017 Datos de costo y su rentabilidad
+#RF017 Datos de costo y su rentabilidad falta
         elif 'rentabilidad de producto' in rec:
             nombre_producto = rec.replace('rentabilidad de producto', '').strip()
             resultado = consultar_rentabilidad_producto(nombre_producto)
@@ -300,7 +418,7 @@ while True:
                 speak(f"El producto más vendido es {nombre_producto} con {total_vendido} unidades vendidas durante la promoción {promocion}.")
             else:
                 speak("No se encontraron resultados.")
-#RF016 Datos de Satisfaccion de Clientes
+#RF016 Datos de Satisfaccion de Clientes falta 
         elif 'satisfaccion de cliente' in rec:  
             cliente = rec.replace('satisfaccion de cliente', '').strip()
             resultado = consultar_satisfaccion_cliente(cliente)
@@ -310,7 +428,7 @@ while True:
                 speak(f"La satisfacción de {cliente} en promedio es {promedio_satisfaccion}.")
             else:
                 speak(f"No se encontraron resultados para {cliente}.")
-#RF014 Datos de Satisfaccion de Clientes
+#RF014 Datos de Satisfaccion de Clientes falta
         elif 'ventas e ingresos' in rec: 
             ventas_ingresos = consultar_ventas_ingresos()
             if ventas_ingresos:
@@ -327,8 +445,62 @@ while True:
             speak("Generando Reporte...")
             os.startfile(pdf_path)  # Abre el archivo PDF
             os.remove(mapa_path)
+#INI RF06 Generar informe de Analisis de inventario y pedidos
+        elif 'analisis de inventario y pedidos' in rec:
+            speak("Generando análisis de inventario y pedidos, un momento...")
+            datos_inventario = consultar_inventario()
+            datos_pedidos = consultar_pedidos()
+            pdf_path = generar_pdf_analisis(datos_inventario, datos_pedidos)
+            if pdf_path:
+                os.startfile(pdf_path)
+                speak("Análisis de inventario y pedidos generado exitosamente.")
+            else:
+                speak("Error al generar el análisis de inventario y pedidos.")
 
+#FIN RF06 Generar informe de Analisis de inventario y pedidos
 
+# INI Generar reporte de clientes por ciudad
+        elif 'reporte de clientes por ciudad' in rec:
+            pdf_path = generar_reporte_clientes_ciudad()
+            if pdf_path:
+                os.startfile(pdf_path)
+                speak("Reporte de clientes por ciudad generado exitosamente.")
+            else:
+                speak("Error al generar el reporte de clientes por ciudad.")
+# FIN Generar reporte de clientes por ciudad
+
+# INI RF023 Segmentar a los clientes segun su comportamiento de compra
+        elif 'reporte de clientes' in rec:
+            datos = obtener_clientes_por_categoria()
+            excel_file = generar_excel_clientes_categoria(datos)
+            if excel_file:
+                os.startfile(excel_file)
+                speak("Reporte de clientes por categoría generado exitosamente.")
+            else:
+                speak("Error al generar el reporte de clientes por categoría.")
+# FIN RF023 Segmentar a los clientes segun su comportamiento de compra
+
+#INI Cantidad de productos comprados por cliente
+        elif 'productos comprados por' in rec:
+            cliente = rec.replace('productos comprados por', '').strip()
+            resultado = consultar_prueba(cliente)
+            if resultado:
+                speak(f"La cantidad de productos comprados por {cliente} es {resultado[1]}")
+            else:
+                speak(f"No se encontró productos para el cliente {cliente} ")
+
+#FIN Cantidad de productos comprados por cliente
+
+#RF04 Recomendar producto a cliente
+        elif 'recomendar producto para' in rec:
+            cliente_id = rec.replace('recomendar producto para', '').strip()
+            resultado = consultar_recomendaciones(cliente_id)
+            if resultado:
+                speak(f"la Opcion de producto para {cliente_id} es {resultado[0]}")
+            else:
+                speak(f"No se encontró productos para recomendar {cliente_id} ")
+                
+#FIN RF04 Recomendar producto a cliente
 
         elif 'descansa' in rec:
             speak("Gracias, Saliendo...")
