@@ -139,7 +139,7 @@ def consultar_producto_mas_vendido():
 
 # INI RF016 Metodo para Consultar la Satisfaccion de un Cliente Especifico
 def consultar_satisfaccion_cliente(cliente):
-    consulta_satisfaccion_cliente = "SELECT nombre_cliente, CASE WHEN promedio_satisfaccion >= 4.5 THEN 'Muy satisfecho' WHEN promedio_satisfaccion >= 3.5 THEN 'Satisfecho' WHEN promedio_satisfaccion >= 2.5 THEN 'Neutral'  WHEN promedio_satisfaccion >= 1.5 THEN 'Insatisfecho' ELSE 'Muy insatisfecho' END AS promedio_satisfaccion_texto FROM ( SELECT cliente.nombre AS nombre_cliente, AVG(CASE WHEN pedido.satisfaccion = 'Muy satisfecho' THEN 5 WHEN pedido.satisfaccion = 'Satisfecho' THEN 4 WHEN pedido.satisfaccion = 'Neutral' THEN 3 WHEN pedido.satisfaccion = 'Insatisfecho' THEN 2 WHEN pedido.satisfaccion = 'Muy insatisfecho' THEN 1 ELSE 0 END) AS promedio_satisfaccion FROM pedido JOIN  cliente ON pedido.cliente_id = cliente.id WHERE  cliente.nombre = %s GROUP BY  cliente.nombre) AS subconsulta"
+    consulta_satisfaccion_cliente = "SELECT c.apellido AS cliente_nombre, CASE WHEN SUM(CASE WHEN p.satisfaccion = 'Satisfecho' THEN 1 ELSE 0 END) > SUM(CASE WHEN p.satisfaccion = 'Insatisfecho' THEN 1 ELSE 0 END) THEN 'Satisfecho'ELSE 'Insatisfecho' END AS evaluacion_general FROM pedido p JOIN cliente c ON p.cliente_id = c.id WHERE c.apellido = %s GROUP BY c.nombre; "
     cursor.execute(consulta_satisfaccion_cliente,(cliente,))
     resultado = cursor.fetchone()
     return resultado
@@ -147,7 +147,7 @@ def consultar_satisfaccion_cliente(cliente):
 
 # INI RF014 Metodo para Consultar Datos de Ventas e Ingresos
 def consultar_ventas_ingresos():
-    consulta_ventas = "SELECT SUM(total) AS total_vendido, SUM(monto_total) AS total_facturado FROM pedido JOIN factura ON pedido.id = factura.pedido_id;"
+    consulta_ventas = "SELECT SUM(pedido.total) AS Total_Ventas,SUM(pago.monto) AS Total_Ingresos FROM pedido JOIN pago ON pedido.pago_id = pago.id;"
     cursor.execute(consulta_ventas)
     resultado = cursor.fetchone()
     return resultado
@@ -159,19 +159,16 @@ def obtener_ciudad():
     return cursor.fetchall()
 
 def obtener_coordenadas(ciudad):
-    geolocator = Nominatim(user_agent="myGeocoder")
-    try:
-        location = geolocator.geocode(ciudad)
-        if location:
-            return (location.latitude, location.longitude)
-        else:
-            print(f"No se encontraron coordenadas para {ciudad}")
-            return (0, 0)
-    except (GeocoderTimedOut, GeocoderServiceError):
+    geolocator = Nominatim(user_agent="mi_aplicacion")
+    location = geolocator.geocode(ciudad + ", Peru")
+    if location:
+        return (location.latitude, location.longitude)
+    else:
         print(f"Error al buscar coordenadas para {ciudad}")
-        return (0, 0)
+        return None
 
 def generar_mapa(datos):
+
     ciudades = [fila[0] for fila in datos]
     conteos = [fila[1] for fila in datos]
 
